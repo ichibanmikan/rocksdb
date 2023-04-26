@@ -90,6 +90,7 @@ class Status {
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
     kGhostCache = 16,
+    kEvicted = 17,
     kMaxCode
   };
 
@@ -167,6 +168,10 @@ class Status {
 
   static Status Ghost(SubCode msg = kNone){
     return Status(kGhostCache, msg);
+  }
+
+  static Status Evicted(SubCode msg=kNone){
+    return Status(kEvicted, msg);
   }
 
   // Fast path for not found without malloc;
@@ -302,6 +307,11 @@ class Status {
   bool IsGhostCache() const{
     MarkChecked();
     return code() == kGhostCache;
+  }
+
+  bool IsEvicted() const{
+    MarkChecked();
+    return code() == kEvicted;
   }
 
   // Returns true iff the status indicates success *with* something

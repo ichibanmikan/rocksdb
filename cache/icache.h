@@ -11,6 +11,8 @@
 #include "rocksdb/status.h"
 
 #include <unordered_map>
+#include <vector>
+#include <cmath>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -60,7 +62,7 @@ class key_value_node_lruhandle_table {
         ~key_value_node_lruhandle_table(){}
 
         key_value_node_lruhandle_table();
-        key_value_node_lruhandle_table(const Slice& key, Slice value);
+        key_value_node_lruhandle_table(const Slice& key, Slice& value);
         key_value_node_lruhandle_table(uint32_t m_len);
         std::unordered_map<Slice, KPVHandle*> hash_table; //hash表
         KPVHandle* head_; //表头
@@ -80,9 +82,11 @@ class key_value_node_lruhandle_table {
 
         // void 
         // KPVHandle* Adjust(std::unordered_map<Slice, KPVHandle*>::iterator iter);
-        void Evict(uint32_t len);
+        Status Evict(uint32_t len);
 
         inline void set_head_value(Slice v);
+        inline uint32_t a_func();
+        // inline uint32_t
 
         bool Empty();
 };
