@@ -89,6 +89,7 @@ class Status {
     kTryAgain = 13,
     kCompactionTooLarge = 14,
     kColumnFamilyDropped = 15,
+    kGhostCache = 16,
     kMaxCode
   };
 
@@ -162,6 +163,10 @@ class Status {
   // Return error status of an appropriate type.
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kNotFound, msg, msg2);
+  }
+
+  static Status Ghost(SubCode msg = kNone){
+    return Status(kGhostCache, msg);
   }
 
   // Fast path for not found without malloc;
@@ -292,6 +297,11 @@ class Status {
   bool ok() const {
     MarkChecked();
     return code() == kOk;
+  }
+
+  bool IsGhostCache() const{
+    MarkChecked();
+    return code() == kGhostCache;
   }
 
   // Returns true iff the status indicates success *with* something
