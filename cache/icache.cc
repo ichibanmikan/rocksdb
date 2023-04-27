@@ -12,7 +12,15 @@ KPVHandle::KPVHandle(bool pf=false){
     ghost_flag=false;
 }
 
-KPVHandle::KPVHandle(const Slice& v, bool pf=false){
+KPVHandle::KPVHandle(bool gf, bool pf=false){
+    value_();
+    next_=prev_=nullptr;
+    p_flag=pf;
+    size_=0;
+    ghost_flag=gf;
+}
+
+KPVHandle::KPVHandle(Slice& v, bool pf=false){
     value_(v.data());
     next_=prev_=nullptr;
     p_flag=pf;
@@ -20,7 +28,7 @@ KPVHandle::KPVHandle(const Slice& v, bool pf=false){
     ghost_flag=false;
 }
 
-KPVHandle::KPVHandle(const Slice& v, KPVHandle* p, KPVHandle* n, bool pf=false){
+KPVHandle::KPVHandle(Slice& v, KPVHandle* p, KPVHandle* n, bool pf=false){
     value(v.data());
     next_=n;
     prev_=p;
@@ -106,7 +114,7 @@ Status key_value_node_lruhandle_table::Insert(const Slice& key, const Slice& val
     auto iter=hash_table.find(key);
     if(key->size_+value->size_>max_length_){
         return Status::MemoryLimit("Insert failed due to LRU cache being full.");
-    }
+    } //K-V本体就大于整个缓存
     if(iter==hash_table.end()||iter->second==nullptr){
         /*原来的表中没有或是表是空的，需要插入*/
         if(iter->second==nullptr){
@@ -142,66 +150,91 @@ Status key_value_node_lruhandle_table::Insert(const Slice& key, const Slice& val
     } //如果命中链表头
 
     if(ptr==tail_){
-        if(ptr->ghost_flag){
-            /*****************************/
-            //TODO: 如果命中的是ghost cache中的内容
-        } else {
-            tail_->prev_->next_=nullptr;
-            tail_->next_=head_;
-            tail_=tail_->prev_;
-            ptr->prev_=nullptr;
-            head_=ptr;
-            ptr->next_->prev_=ptr;
+        // if(ptr->ghost_flag){
+        //     tail_->prev_->next_=nullptr;
+        //     tail_->next_=head_;
+        //     tail_=tail_->prev_;
+        //     ptr->prev_=nullptr;
+        //     head_=ptr;
+        //     ptr->next_->prev_=ptr;            
+        //     set_head_value()
+        // } else {
 
-            set_head_value(value);
+        tail_->prev_->next_=nullptr;
+        tail_->next_=head_;
+        tail_=tail_->prev_;
+        ptr->prev_=nullptr;
+        head_=ptr;
+        ptr->next_->prev_=ptr;
 
-            // now_size-=ptr->size_;
-            // ptr->size_-=ptr->value_.size();
-            // ptr->value_=value;
-            // ptr->size_+=value.size();
-            // now_size+=ptr->size_;
-        }
+        set_head_value(value);
+
+        // now_size-=ptr->size_;
+        // ptr->size_-=ptr->value_.size();
+        // ptr->value_=value;
+        // ptr->size_+=value.size();
+        // now_size+=ptr->size_;
+        // }
         return Status::OK();
     } //如果命中链表尾
 
     if(iter!=hash_table.end()){
-        if(ptr->ghost_flag){
-            /*****************************/
-        } else {
-            ptr->next_->prev_=ptr->prev_;
-            ptr->prev_->next_=ptr->next_;
-            ptr->prev_=nullptr;
-            ptr->next_=head_;
-            head_=ptr;
+        // if(ptr->ghost_flag){
+        //     /*****************************/
+        // } else {
+        ptr->next_->prev_=ptr->prev_;
+        ptr->prev_->next_=ptr->next_;
+        ptr->prev_=nullptr;
+        ptr->next_=head_;
+        head_=ptr;
 
-            set_head_value(value);
+        set_head_value(value);
 
             // now_size-=ptr->size_;
             // ptr->size_-=ptr->value_.size();
             // ptr->value_=value;
-        }
+        // }
         return Status::OK();
     } //如果命中链表内元素但并非表头或表尾
 
     return Status::Aborted();
 }
 
-// Status key_value_node_lruhandle_table::Remove(const Slice& key){
-//     if(empty()){
-//         return Status::NotFound();
-//     }
-//     KPVHandle* kh;
-//     Status s=key_value_node_lruhandle_table::Lookup(key, kh);
-//     if(s.ok()){
-//         if(kh==head_){
-//             head_=head_->next
-//         }
-//         return Status::OK();
-//     }
-//     if(s.IsEvicted()){
+Status key_value_node_lruhandle_table::Remove(const Slice& key){
+    if(Empty()){
+        return Status::NotFound();
+    }
+    KPVHandle* kh;
+    Status s=key_value_node_lruhandle_table::Lookup(key, kh);
+    if(s.ok()||s.IsGhostCache()){
+        if(head_==tail_){
+            delete head_;
+        } else {
+            if(head_==kh){
+                head_=head_->next_;
+                delete head_->prev_;
+                head_->prev_=nullptr;
+            } else if(tail_==kh){
+                tail_=tail->prev_;
+                delete tail_->next_;
+                tail_->next_=nullptr;
+            } else {
+                kh->prev_->next_=kh->next_;
+                kh->next_->prev_=kh->prev_;
+                delete kh;
+            }
+        }
+        return Status::OK();
+    }
+    if(s.IsEvicted()){
+        return Status::Evicted();
+    }
+    return Status::NotFound();
+}
 
-//     }
-// }
+bool key_value_node_lruhandle_table::Empty(){
+    return head_==tail_&&tail_==nullptr;
+}
 
 //驱逐算法
 Status key_value_node_lruhandle_table::Evict(uint32_t len){
@@ -242,6 +275,8 @@ Status key_value_node_lruhandle_table::Evict(uint32_t len){
                 now_ghost_length+=v_tmp[i][j]->size_;
                 //TODO: ghost cache保存metadata
 
+                Adjust(v_tmp[i][j]);
+
                 if(boundary_==tail_){
                     v_tmp[i][j]->prev_->next_=v_tmp[i][j]->next_;
                     v_tmp[i][j]->next_->prev_=v_tmp[i][j]->prev_;
@@ -280,7 +315,33 @@ Status key_value_node_lruhandle_table::Evict(uint32_t len){
     return Status::OK();
 }
 
+std::unordered_map<Slice, KPVHandle*>::iterator key_value_node_lruhandle_table::Find(KPVHandle* k){
+    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+        if(iter->second==k){
+            return iter;
+        }
+    }
+    return hash_table.end();
+}
 
+void key_value_node_lruhandle_table::clean(){
+    vector<std::unordered_map<Slice, KPVHandle*>::iteratort>  v_iter;
+    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+        if(iter->second==nullptr){
+            v_iter.push_back(iter);
+        }
+    }
 
+    for(auto : v_iter){
+        hash_table.erase(v_iter);
+    }
+}
+
+Status Adjust(KPVHandle* k)
+    auto iter=Find(k);
+    now_size-=iter->second->size_;
+    iter->second=new KPVHandle(true);
+    now_size-=iter->second->size_;
+    return Status::OK();
 }
 }

@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 #include <cmath>
+#include <cstdint>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -47,6 +48,7 @@ class KPVHandle{
         bool ghost_flag; //ghost cache标志
 
         KPVHandle(bool pf=false);
+        KPVHandle(bool gf, bool pf=false);
         KPVHandle(Slice& v, bool pf=false);
         KPVHandle(Slice& v, KPVHandle* p, KPVHandle* n, bool pf=false);
 
@@ -58,6 +60,8 @@ class KPVHandle{
 };
     
 class key_value_node_lruhandle_table {
+    private:
+        std::unordered_map<Slice, KPVHandle*>::iterator Find(KPVHandle* k);
     public:
         ~key_value_node_lruhandle_table(){}
 
@@ -79,66 +83,69 @@ class key_value_node_lruhandle_table {
         Status Lookup(const Slice& key, KPVHandle* &ret_ptr);
         Status Insert(const Slice& key, const Slice& value);
         Status Remove(const Slice& key);
+        Status Adjust(KPVHandle* k);
 
         // void 
         // KPVHandle* Adjust(std::unordered_map<Slice, KPVHandle*>::iterator iter);
-        Status Evict(uint32_t len);
+        Status Evict(KPVHandle* k);
 
         inline void set_head_value(Slice v);
         inline uint32_t a_func();
         // inline uint32_t
 
         bool Empty();
+
+        void Clean();
 };
 
-class key_pointer_node_lruhandle_table {
-    public:
-        ~key_pointer_node_lruhandle_table(){}
+// class key_pointer_node_lruhandle_table {
+//     public:
+//         ~key_pointer_node_lruhandle_table(){}
 
-        key_pointer_node_lruhandle_table();
-        key_pointer_node_lruhandle_table(const Slice& key, Slice pointer);
-        key_pointer_node_lruhandle_table(uint32_t m_len, uint32_t ghost_size);
-        std::unordered_map<Slice, KPVHandle*> hash_table; //hash表
-        KPVHandle* head_; //表头
-        KPVHandle* tail_; //表尾
-        // bool* pv_flag; //KV和KP标志
+//         key_pointer_node_lruhandle_table();
+//         key_pointer_node_lruhandle_table(const Slice& key, Slice pointer);
+//         key_pointer_node_lruhandle_table(uint32_t m_len, uint32_t ghost_size);
+//         std::unordered_map<Slice, KPVHandle*> hash_table; //hash表
+//         KPVHandle* head_; //表头
+//         KPVHandle* tail_; //表尾
+//         // bool* pv_flag; //KV和KP标志
 
-        KPVHandle* boundary_ //ghost cache开始标志
-        uint32_t ghost_size; //ghost cache大小
-        uint32_t max_length_; //表长上限
+//         KPVHandle* boundary_ //ghost cache开始标志
+//         uint32_t ghost_size; //ghost cache大小
+//         uint32_t max_length_; //表长上限
 
-        KPVHandle* Lookup(const Slice& key, Status& ghost_adjust);
-        KPVHandle* Insert(KPVHandle* h);
-        KPVHandle* Remove(const Slice& key);
-};
+//         KPVHandle* Lookup(const Slice& key, Status& ghost_adjust);
+//         KPVHandle* Insert(KPVHandle* h);
+//         KPVHandle* Remove(const Slice& key);
+// };
 
-class BlockNodeHandle{
-    private:
-        BlockContents* next;
-        BlockContents* prev;
-        BlockContents block;
-    public:
-        ~BlockNodeHandle();
-        BlockNodeHandle();
-        BlockNodeHandle(BlockContents* f, BlockContents* n);
-        BlockNodeHandle(BlockContents t);
-}
+// class BlockNodeHandle{
+//     private:
+//         BlockContents* next;
+//         BlockContents* prev;
+//         BlockContents block;
+//     public:
+//         ~BlockNodeHandle();
+//         BlockNodeHandle();
+//         BlockNodeHandle(BlockContents* f, BlockContents* n);
+//         BlockNodeHandle(BlockContents t);
+// }
 
-class key_block_node_lruhandle_table{
-    public:
-        BlockNodeHandle** list_; //块哈希表
-        int max_size;
+// class key_block_node_lruhandle_table{
+//     public:
+//         BlockNodeHandle** list_; //块哈希表
+//         int max_size;
 
-        BlockContents* boundary_ //ghost cache开始标志
-        uint32_t ghost_size; //ghost cache大小
-        uint32_t max_length_; //表长上限
-        ~key_block_node_lruhandle_table();
-        key_block_node_lruhandle_table();
-};
+//         BlockContents* boundary_ //ghost cache开始标志
+//         uint32_t ghost_size; //ghost cache大小
+//         uint32_t max_length_; //表长上限
+//         ~key_block_node_lruhandle_table();
+//         key_block_node_lruhandle_table();
+// };
 
-class icache : public Cache{
+// class icache : public Cache{
     
-};
+// };
 
 }
 }
