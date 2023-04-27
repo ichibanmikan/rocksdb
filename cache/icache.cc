@@ -5,23 +5,22 @@ namespace ROCKSDB_NAMESPACE {
 namespace icache {
 
 KPVHandle::KPVHandle(bool pf=false){
-    value_();
     next_=prev_=nullptr;
     p_flag=pf;
-    size_=0;
+    size_=24;
     ghost_flag=false;
 }
 
 KPVHandle::KPVHandle(bool gf, bool pf=false){
-    value_();
     next_=prev_=nullptr;
     p_flag=pf;
-    size_=0;
+    size_=24;
     ghost_flag=gf;
 }
 
 KPVHandle::KPVHandle(Slice& v, bool pf=false){
-    value_(v.data());
+    value_.data_=v.data_;
+    value_.size_=v.size_;
     next_=prev_=nullptr;
     p_flag=pf;
     size_=v.size()+24;
@@ -29,7 +28,8 @@ KPVHandle::KPVHandle(Slice& v, bool pf=false){
 }
 
 KPVHandle::KPVHandle(Slice& v, KPVHandle* p, KPVHandle* n, bool pf=false){
-    value(v.data());
+    value_.data_=v.data_;
+    value_.size_=v.size_;
     next_=n;
     prev_=p;
     p_flag=pf;
@@ -47,21 +47,6 @@ inline void KPVHandle::setNewValue(Slice v){
     size_+=value_.size();
 }
 
-key_value_node_lruhandle_table::key_value_node_lruhandle_table(const Slice& key, Slice& value){
-    max_length_=67108864; //64MB
-    ghost_size=65536; //64KB
-
-    now_ghost_length=0;
-
-    KPVHandle* k1=new KPVHandle(value);
-    hash_table.emplace(key, k1);
-
-    now_size=key.size()+k1->size_;
-
-    tail_=head_=k1;
-    boundary_=tail_;
-}
-
 key_value_node_lruhandle_table::key_value_node_lruhandle_table(){
     max_length_=67108864;
     ghost_size=65536;
@@ -70,6 +55,21 @@ key_value_node_lruhandle_table::key_value_node_lruhandle_table(){
 
     now_size=0;
     boundary_=head_=tail_=nullptr;
+}
+
+key_value_node_lruhandle_table::key_value_node_lruhandle_table(Slice& key, Slice& value){
+    max_length_=67108864; //64MB
+    ghost_size=65536; //64KB
+
+    now_ghost_length=0;
+
+    KPVHandle* k1=new KPVHandle(value);
+    hash_table.emplace(key.ToString(), k1);
+
+    now_size=key.size()+k1->size_;
+
+    tail_=head_=k1;
+    boundary_=tail_;
 }
 
 key_value_node_lruhandle_table::key_value_node_lruhandle_table(uint32_t m_len){
@@ -88,12 +88,12 @@ inline void key_value_node_lruhandle_table::set_head_value(Slice v){
     now_size+=head_->size_;
 }
 
-inline uint32_t a_func(){
+inline uint32_t key_value_node_lruhandle_table::a_func(){
     return (uint32_t)log(2000);
 }
 
-Status key_value_node_lruhandle_table::Lookup(const Slice& key, KPVHandle* &ret_ptr){
-    auto iter=hash_table.find(key);
+Status key_value_node_lruhandle_table::Lookup(Slice& key, KPVHandle* &ret_ptr){
+    auto iter=hash_table.find(key.ToString());
     // Status s;
     if(iter==hash_table.end()){
         ret_ptr = new KPVHandle();
@@ -110,9 +110,9 @@ Status key_value_node_lruhandle_table::Lookup(const Slice& key, KPVHandle* &ret_
     }
 }
 
-Status key_value_node_lruhandle_table::Insert(const Slice& key, const Slice& value){
-    auto iter=hash_table.find(key);
-    if(key->size_+value->size_>max_length_){
+Status key_value_node_lruhandle_table::Insert(Slice& key, Slice& value){
+    auto iter=hash_table.find(key.ToString());
+    if(key.size_+value.size_>max_length_){
         return Status::MemoryLimit("Insert failed due to LRU cache being full.");
     } //K-V本体就大于整个缓存
     if(iter==hash_table.end()||iter->second==nullptr){
@@ -123,12 +123,13 @@ Status key_value_node_lruhandle_table::Insert(const Slice& key, const Slice& val
         KPVHandle* tmp_kh=new KPVHandle(value);
         if(((now_size-now_ghost_length)+key.size()+tmp_kh->size_)>(max_length_-ghost_size)){
             // delete tmp_kh;
-            Evict(key.size()+tmp_kh->size_);
+            Evict((uint32_t)key.size()+tmp_kh->size_);
         }
         tmp_kh->next_=head_;
         head_->prev_=tmp_kh;
-        head_=prev_;
+        head_=head_->prev_;
         now_size+=(key.size()+tmp_kh->size_);
+        hash_table.emplace(key.ToString(), tmp_kh);
         // if((now_size+key.size()+tmp_kh->size_)>(now_size-ghost_size)){
         //     evict(key.size()+tmp_kh->size_);
         //     tmp_kh->next_=head_;
@@ -200,7 +201,7 @@ Status key_value_node_lruhandle_table::Insert(const Slice& key, const Slice& val
     return Status::Aborted();
 }
 
-Status key_value_node_lruhandle_table::Remove(const Slice& key){
+Status key_value_node_lruhandle_table::Remove(Slice& key){
     if(Empty()){
         return Status::NotFound();
     }
@@ -215,7 +216,7 @@ Status key_value_node_lruhandle_table::Remove(const Slice& key){
                 delete head_->prev_;
                 head_->prev_=nullptr;
             } else if(tail_==kh){
-                tail_=tail->prev_;
+                tail_=tail_->prev_;
                 delete tail_->next_;
                 tail_->next_=nullptr;
             } else {
@@ -267,47 +268,47 @@ Status key_value_node_lruhandle_table::Evict(uint32_t len){
     }
     /*从real cache中选出等待替换的k-v对，每当尺寸不够就选出a个*/
 
-    // for(int i=v_tmp.size()-1; i>=0; i--){
-    for(int i=v_tmp.size(); i>=0; i--){
-        for(int j=v_tmp[i].size(); j>=0; j--){
-            len-=v_tmp[i][j]->size_;
-            if(now_ghost_length+v_tmp[i][j]->size_<ghost_size){
-                now_ghost_length+=v_tmp[i][j]->size_;
+    // for(int i=evict_kh_real.size()-1; i>=0; i--){
+    for(int i=evict_kh_real.size(); i>=0; i--){
+        for(int j=evict_kh_real[i].size(); j>=0; j--){
+            len-=evict_kh_real[i][j]->size_;
+            if(now_ghost_length+evict_kh_real[i][j]->size_<ghost_size){
+                now_ghost_length+=evict_kh_real[i][j]->size_;
                 //TODO: ghost cache保存metadata
 
-                Adjust(v_tmp[i][j]);
+                Adjust(evict_kh_real[i][j]);
 
                 if(boundary_==tail_){
-                    v_tmp[i][j]->prev_->next_=v_tmp[i][j]->next_;
-                    v_tmp[i][j]->next_->prev_=v_tmp[i][j]->prev_;
-                    v_tmp[i][j]->next_=nullptr;
-                    v_tmp[i][j]->prev_=tail_;
-                    tail_=v_tmp[i][j];
+                    evict_kh_real[i][j]->prev_->next_=evict_kh_real[i][j]->next_;
+                    evict_kh_real[i][j]->next_->prev_=evict_kh_real[i][j]->prev_;
+                    evict_kh_real[i][j]->next_=nullptr;
+                    evict_kh_real[i][j]->prev_=tail_;
+                    tail_=evict_kh_real[i][j];
                     continue;
                 }
 
-                if(v_tmp[i][j]==head_){
-                    // boundary->next=head_;
+                if(evict_kh_real[i][j]==head_){
+                    // boundary_->next_=head_;
                     if(boundary_->next_){
                         boundary_->next_->prev_=head_;
                     }
                     head_->next_->prev_=nullptr;
                     head_=head_->next_;
-                    v_tmp[i][j]->prev_=boundary_;
-                    v_tmp[i][j]->next_=boundary_->next_;
-                    boundary_->next=v_tmp[i][j];
-                    // head_=v_tmp[i][j]->next;
+                    evict_kh_real[i][j]->prev_=boundary_;
+                    evict_kh_real[i][j]->next_=boundary_->next_;
+                    boundary_->next_=evict_kh_real[i][j];
+                    // head_=evict_kh_real[i][j]->next_;
                     continue;
                 }
 
-                boundary_->next_->prev_=v_tmp[i][j];
-                v_tmp[i][j]->prev_->next_=v_tmp[i][j]->next_;
-                v_tmp[i][j]->next_->prev_=v_tmp[i][j]->prev_;
-                v_tmp[i][j]->next_=boundary_->next_;
-                v_tmp[i][j]->prev_=boundary_;
-                boundary_->next_=v_tmp[i][j];
+                boundary_->next_->prev_=evict_kh_real[i][j];
+                evict_kh_real[i][j]->prev_->next_=evict_kh_real[i][j]->next_;
+                evict_kh_real[i][j]->next_->prev_=evict_kh_real[i][j]->prev_;
+                evict_kh_real[i][j]->next_=boundary_->next_;
+                evict_kh_real[i][j]->prev_=boundary_;
+                boundary_->next_=evict_kh_real[i][j];
             } else {
-                delete v_tmp[i][j];
+                delete evict_kh_real[i][j];
             }
         }
     }
@@ -315,7 +316,7 @@ Status key_value_node_lruhandle_table::Evict(uint32_t len){
     return Status::OK();
 }
 
-std::unordered_map<Slice, KPVHandle*>::iterator key_value_node_lruhandle_table::Find(KPVHandle* k){
+std::unordered_map<std::string, KPVHandle*>::iterator key_value_node_lruhandle_table::Find(KPVHandle* k){
     for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
         if(iter->second==k){
             return iter;
@@ -324,24 +325,26 @@ std::unordered_map<Slice, KPVHandle*>::iterator key_value_node_lruhandle_table::
     return hash_table.end();
 }
 
-void key_value_node_lruhandle_table::clean(){
-    vector<std::unordered_map<Slice, KPVHandle*>::iteratort>  v_iter;
+void key_value_node_lruhandle_table::Clean(){
+    std::vector<std::unordered_map<std::string, KPVHandle*>::iterator>  v_iter;
     for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
         if(iter->second==nullptr){
             v_iter.push_back(iter);
         }
     }
 
-    for(auto : v_iter){
-        hash_table.erase(v_iter);
+    for(auto i : v_iter){
+        hash_table.erase(i);
     }
 }
 
-Status Adjust(KPVHandle* k)
+Status key_value_node_lruhandle_table::Adjust(KPVHandle* k){
     auto iter=Find(k);
     now_size-=iter->second->size_;
-    iter->second=new KPVHandle(true);
+    iter->second=new KPVHandle(true, false);
     now_size-=iter->second->size_;
     return Status::OK();
+}
+
 }
 }

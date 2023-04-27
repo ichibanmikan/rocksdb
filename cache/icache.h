@@ -14,6 +14,7 @@
 #include <vector>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -47,10 +48,10 @@ class KPVHandle{
 
         bool ghost_flag; //ghost cache标志
 
-        KPVHandle(bool pf=false);
-        KPVHandle(bool gf, bool pf=false);
-        KPVHandle(Slice& v, bool pf=false);
-        KPVHandle(Slice& v, KPVHandle* p, KPVHandle* n, bool pf=false);
+        KPVHandle(bool pf);
+        KPVHandle(bool gf, bool pf);
+        KPVHandle(Slice& v, bool pf);
+        KPVHandle(Slice& v, KPVHandle* p, KPVHandle* n, bool pf);
 
         inline void setNewValue(Slice v);
 
@@ -61,33 +62,33 @@ class KPVHandle{
     
 class key_value_node_lruhandle_table {
     private:
-        std::unordered_map<Slice, KPVHandle*>::iterator Find(KPVHandle* k);
+        std::unordered_map<std::string, KPVHandle*>::iterator Find(KPVHandle* k);
     public:
         ~key_value_node_lruhandle_table(){}
 
         key_value_node_lruhandle_table();
-        key_value_node_lruhandle_table(const Slice& key, Slice& value);
+        key_value_node_lruhandle_table(Slice& key, Slice& value);
         key_value_node_lruhandle_table(uint32_t m_len);
-        std::unordered_map<Slice, KPVHandle*> hash_table; //hash表
+        std::unordered_map<std::string, KPVHandle*> hash_table; //hash表
         KPVHandle* head_; //表头
         KPVHandle* tail_; //表尾
 
-        KPVHandle* boundary_ //ghost cache开始标志，指向ghost cache链的第一个节点
+        KPVHandle* boundary_; //ghost cache开始标志，指向ghost cache链的第一个节点
         uint32_t now_ghost_length; //当前ghost cache size
-        const uint32_t ghost_size; //ghost cache大小
+        uint32_t ghost_size; //ghost cache大小
         uint32_t now_size; //当前表长
-        const uint32_t max_length_; //表长上限
+        uint32_t max_length_; //表长上限
 
         uint32_t step_length;
 
-        Status Lookup(const Slice& key, KPVHandle* &ret_ptr);
-        Status Insert(const Slice& key, const Slice& value);
-        Status Remove(const Slice& key);
+        Status Lookup(Slice& key, KPVHandle* &ret_ptr);
+        Status Insert(Slice& key, Slice& value);
+        Status Remove(Slice& key);
         Status Adjust(KPVHandle* k);
 
         // void 
         // KPVHandle* Adjust(std::unordered_map<Slice, KPVHandle*>::iterator iter);
-        Status Evict(KPVHandle* k);
+        Status Evict(uint32_t len);
 
         inline void set_head_value(Slice v);
         inline uint32_t a_func();
