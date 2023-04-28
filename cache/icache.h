@@ -99,26 +99,54 @@ class key_value_node_lruhandle_table {
         void Clean();
 };
 
-// class key_pointer_node_lruhandle_table {
-//     public:
-//         ~key_pointer_node_lruhandle_table(){}
+class key_pointer_node_lruhandle_table {
+    public:
+        ~key_pointer_node_lruhandle_table(){}
 
-//         key_pointer_node_lruhandle_table();
-//         key_pointer_node_lruhandle_table(const Slice& key, Slice pointer);
-//         key_pointer_node_lruhandle_table(uint32_t m_len, uint32_t ghost_size);
-//         std::unordered_map<Slice, KPVHandle*> hash_table; //hash表
-//         KPVHandle* head_; //表头
-//         KPVHandle* tail_; //表尾
-//         // bool* pv_flag; //KV和KP标志
 
-//         KPVHandle* boundary_ //ghost cache开始标志
-//         uint32_t ghost_size; //ghost cache大小
-//         uint32_t max_length_; //表长上限
+        key_pointer_node_lruhandle_table();
+        key_pointer_node_lruhandle_table(Slice& key, Slice& value);
+        key_pointer_node_lruhandle_table(uint32_t m_len);
+        
+        std::unordered_map<std::string, KPVHandle*> hash_table;
 
-//         KPVHandle* Lookup(const Slice& key, Status& ghost_adjust);
-//         KPVHandle* Insert(KPVHandle* h);
-//         KPVHandle* Remove(const Slice& key);
-// };
+        inline uint32_t a_func();
+        inline void set_head_value(Slice v);
+        
+
+        
+        KPVHandle* head_; //表头
+        KPVHandle* tail_; //表尾
+
+        KPVHandle* boundary_; //ghost cache开始标志，指向ghost cache链的第一个节点
+        uint32_t now_ghost_length; //当前ghost cache size
+        uint32_t ghost_size; //ghost cache大小
+        uint32_t now_size; //当前表长
+        uint32_t max_length_; //表长上限
+
+        uint32_t step_length;
+
+        // Status Dump(std::unordered_map<std::string, KPVHandle*>::iterator iter, key_value_node_lruhandle_table& kvt);
+
+        Status Lookup(Slice& key, KPVHandle* &ret_ptr);
+        Status Insert(Slice& key, Slice& value);
+        Status Remove(Slice& key);
+        Status Adjust(KPVHandle* k);
+
+        // void 
+        // KPVHandle* Adjust(std::unordered_map<Slice, KPVHandle*>::iterator iter);
+        Status Evict(uint32_t len);
+
+        // inline uint32_t
+
+        bool Empty();
+
+        void Clean();
+
+
+    private:
+        std::unordered_map<std::string, KPVHandle*>::iterator Find(KPVHandle* k);
+};
 
 // class BlockNodeHandle{
 //     private:
@@ -144,9 +172,12 @@ class key_value_node_lruhandle_table {
 //         key_block_node_lruhandle_table();
 // };
 
-// class icache : public Cache{
-    
-// };
+class icache : public Cache{
+    //TODO: Loopup Evicted, NotFound
+    //TODO: Ghost Cache
+    //TODO: KP Cache hit, KP'head_->KV
+    //TODO: pointer flush
+};
 
 }
 }

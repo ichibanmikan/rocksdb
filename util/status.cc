@@ -88,6 +88,12 @@ std::string Status::ToString() const {
     case kNotFound:
       type = "NotFound: ";
       break;
+    case kGhostCache:
+      type = "Ghost Cache hit: ";
+      break;
+    case kEvicted:
+      type = "Evicted: ";
+      break;
     case kCorruption:
       type = "Corruption: ";
       break;
