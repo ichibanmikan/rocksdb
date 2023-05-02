@@ -110,7 +110,26 @@ Status key_value_node_lruhandle_table::Lookup(Slice& key, KPVHandle* &ret_ptr){
         if(ret_ptr->ghost_flag){
             return Status::Ghost();
         }
+        if(ret_ptr==head_){
+            return Status::OK();
+        }
+        if(ret_ptr==tail_){
+            tail_->prev_->next_=nullptr;
+            tail_=tail_->prev_;
+            ret_ptr->prev_=nullptr;
+            ret_ptr->next_=head_;
+            head_->prev_=ret_ptr;
+            head_=ret_ptr;
+            return Status::OK();
+        }
+        ret_ptr->prev_->next_=ret_ptr->next_;
+        ret_ptr->next_->prev_=ret_ptr->prev_;
+        ret_ptr->prev_=nullptr;
+        ret_ptr->next_=head_;
+        head_->prev_=ret_ptr;
+        head_=ret_ptr;
         return Status::OK();
+        
     }
 }
 
@@ -239,6 +258,17 @@ Status key_value_node_lruhandle_table::Remove(Slice& key){
 
 bool key_value_node_lruhandle_table::Empty(){
     return head_==tail_&&tail_==nullptr;
+}
+
+Status key_value_node_lruhandle_table::DeleteSize(uint32_t len){
+    if(len>now_size){
+        return Status::MemoryLimit();
+    }
+    Status s=Evict(len);
+    if(s.ok()){
+        return Status::OK();
+    }
+    return Status::Aborted();
 }
 
 //驱逐算法
@@ -396,6 +426,17 @@ inline void key_pointer_node_lruhandle_table::set_head_value(Slice v){
 
 inline uint32_t key_pointer_node_lruhandle_table::a_func(){
     return (uint32_t)log(2000);
+}
+
+Status key_pointer_node_lruhandle_table::DeleteSize(uint32_t len){
+    if(len>now_size){
+        return Status::MemoryLimit();
+    }
+    Status s=Evict(len);
+    if(s.ok()){
+        return Status::OK();
+    }
+    return Status::Aborted();    
 }
 
 Status key_pointer_node_lruhandle_table::Lookup(Slice& key, KPVHandle* &ret_ptr){
@@ -607,6 +648,154 @@ void key_pointer_node_lruhandle_table::Clean(){
     for(auto i : v_iter){
         hash_table.erase(i);
     }
+}
+
+icache::icache(){
+    kvt=new key_value_node_lruhandle_table();
+    kpt=new key_pointer_node_lruhandle_table();
+    sv=new SuperVersion();
+}
+
+icache::icache(SuperVersion s){
+    kvt=new key_value_node_lruhandle_table();
+    kpt=new key_pointer_node_lruhandle_table();
+    sv=&s;
+}
+
+icache::icache(Slice& key, Slice& value){
+    kvt=new key_value_node_lruhandle_table();
+    kpt=new key_pointer_node_lruhandle_table(key, value);
+    sv=new SuperVersion();
+}
+
+icache::icache(uint32_t m_len_kv, uint32_t m_len_kp){
+    kvt=new key_value_node_lruhandle_table(m_len_kv);
+    kpt=new key_value_node_lruhandle_table(m_len_kp);
+    sv=new SuperVersion();
+}
+
+icache::~icache(){
+    delete kvt;
+    delete kpt;
+    delete sv;
+}
+
+icache::icache(key_value_node_lruhandle_table t1, key_pointer_node_lruhandle_table t2){
+    kvt=&t1;
+    kpt=&t2;
+    sv=new SuperVersion();
+}
+
+Status icache::Insert(Slice& key, Slice& value){
+    Status s=kpt->Remove(key);
+    if(s.ok()){
+        s=kvt->Insert(key, value);
+        return s;
+    }
+    if(s.IsNotFound()||s.IsEvicted()){
+        s=kvt->Lookup(key);
+        if(s.ok()){
+            s=kvt->Insert(key, value);
+            return s;
+        }
+        if(s.IsGhostCache()){
+            s=kpt->DeleteSize(value.size_);
+            kvt->max_length_+=value.size_;
+            kvt->Insert(key, value);
+            return s; 
+        }
+        if(s.IsEvicted()){
+            s=kpt->Insert(key, value);
+            return s;
+        }
+    }
+    return Status::Aborted();
+}
+
+Status icache::Lookup(Slice& key, KPVHandle* &ret_ptr){
+    Status s=kpt->Lookup(key, ret_ptr);
+    if(s.IsNotFound()||s.IsEvicted()){
+        s=kvt->Lookup(key, ret_ptr);
+        if(s.ok()){
+            return Status::OK();
+        } else {
+            ReadOptions ro();
+            const Slice ck=key;
+            LookupKey* lkey=new LookupKey (ck, 0);
+            Slice* ps;
+            PinnableWideColumns* pwc;
+            Status* s_ptr;
+            sv->current->Get(ro, lkey, ps, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr);
+
+            if(s.IsGhostCache()){
+                kpt->DeleteSize((uint32_t)ps->size_);
+            }
+
+            if(s_ptr->OK()){
+                kvt->Insert(key, *ps);
+                return OK();
+            }
+
+            return NotFound();
+        }
+    }
+
+    if(s.IsGhostCache()){
+        ReadOptions ro(true, false);
+        // const Slice ck=key;
+        // // kvt->DeleteSize();
+        LookupKey* lkey=new LookupKey (ck, 0);
+        // Slice* ps;
+        PinnableWideColumns* pwc;
+        Status* s_ptr;
+        std::string* value_str;
+        sv->cfd->mem()->Get(lkey, value_str, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr, ro, true, nullptr, nullptr, true);
+        kvt->DeleteSize((uint32_t)value_str->size());
+        kpt->Insert(pwc);
+    }
+
+    if(s.ok()){
+        ReadOptions ro();
+        const Slice ck=key;
+        LookupKey* lkey=new LookupKey (ck, 0);
+        Slice* ps;
+        PinnableWideColumns* pwc;
+        Status* s_ptr;
+        sv->current->Get(ro, lkey, ps, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr);
+    }
+    return Status::Aborted();
+} //MergeContext 是查找内容的上下文，类似于局部性的原理，它只和memtable中的内容相关
+  //SequenceNumber 不清楚具体作用，但是它只与WAL日志文件的查找有关
+  //timestamp 时间戳，版本新加入的，具体内容不理解
+  //columns 所在列族，因为是单列族可用，因此固定值为默认
+
+  // readoptions: cksnum:verify_checksums，就是在遍历时对所有数据进行校验，默认是true, cache默认也是true, 所以可以直接默认构造。
+
+Status iCache::Erase(Slice& key){
+    Status s_1=kpt->Remove(key);
+    Status s_2=kvt->Remove(key);
+    if(s_1.ok()||s_1.IsGhostCache()||s_2.ok()||s_2.IsGhostCache()){
+        return Status::OK();
+    }
+    return Status::NotFound();
+}
+
+Status iCache::Flush(Slice& key){
+    ReadOptions ro(true, false);
+    // const Slice ck=key;
+    // // kvt->DeleteSize();
+    LookupKey* lkey=new LookupKey (ck, 0);
+    // Slice* ps;
+    PinnableWideColumns* pwc;
+    Status* s_ptr;
+    std::string* value_str;
+    sv->cfd->mem()->Get(lkey, value_str, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr, ro, true, nullptr, nullptr, true);
+
+    const std::String str=*value_str;
+
+    Slice value_new=Slice(str);
+
+    return kpt->Insert(key, value_new);
 }
 
 }
