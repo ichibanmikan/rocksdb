@@ -722,7 +722,7 @@ Status icache::Lookup(Slice& key, KPVHandle* &ret_ptr){
             ReadOptions ro();
             const Slice ck=key;
             LookupKey* lkey=new LookupKey (ck, 0);
-            Slice* ps;
+            PinnableSlice* ps;
             PinnableWideColumns* pwc;
             Status* s_ptr;
             sv->current->Get(ro, lkey, ps, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr);
@@ -732,7 +732,7 @@ Status icache::Lookup(Slice& key, KPVHandle* &ret_ptr){
             }
 
             if(s_ptr->OK()){
-                kvt->Insert(key, *ps);
+                kvt->Insert(key, ps->toSlice());
                 return OK();
             }
 
@@ -751,17 +751,20 @@ Status icache::Lookup(Slice& key, KPVHandle* &ret_ptr){
         std::string* value_str;
         sv->cfd->mem()->Get(lkey, value_str, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr, ro, true, nullptr, nullptr, true);
         kvt->DeleteSize((uint32_t)value_str->size());
-        kpt->Insert(pwc);
+        const std::string str=*value_str;
+        kpt->Insert(key, Slice(str));
     }
 
     if(s.ok()){
         ReadOptions ro();
         const Slice ck=key;
         LookupKey* lkey=new LookupKey (ck, 0);
-        Slice* ps;
+        PinnableSlice* ps;
         PinnableWideColumns* pwc;
         Status* s_ptr;
         sv->current->Get(ro, lkey, ps, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr);
+        kpt->Remove(key);
+        kvt->Insert(key, ps->toSlice());
     }
     return Status::Aborted();
 } //MergeContext 是查找内容的上下文，类似于局部性的原理，它只和memtable中的内容相关

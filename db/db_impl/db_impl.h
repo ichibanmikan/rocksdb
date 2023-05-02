@@ -182,6 +182,8 @@ class DBImpl : public DB {
 
   virtual ~DBImpl();
 
+  iCache* ic;
+
   // ---- Implementations of the DB interface ----
 
   using DB::Resume;

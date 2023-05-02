@@ -364,4 +364,9 @@ PinnableSlice& PinnableSlice::operator=(PinnableSlice&& other) {
   return *this;
 }
 
+Slice PinnableSlice::toSlice(){
+  const std::string str=*buf_;
+  return Slice(str);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

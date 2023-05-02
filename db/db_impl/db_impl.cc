@@ -255,6 +255,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                                    ? TableCache::kInfiniteCapacity
                                    : mutable_db_options_.max_open_files - 10;
   LRUCacheOptions co;
+  ic=new iCache()
   co.capacity = table_cache_size;
   co.num_shard_bits = immutable_db_options_.table_cache_numshardbits;
   co.metadata_charge_policy = kDontChargeCacheMetadata;
@@ -2183,6 +2184,20 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:0");
   TEST_SYNC_POINT("DBImpl::GetImpl:PostMemTableGet:1");
   PinnedIteratorsManager pinned_iters_mgr;
+
+  // iCache 在memtable之后，block cache(SSTable)之前
+
+  if(!done){
+    ic->sv=sv;
+    KPVHandle* kph;
+    Status s=ic->Lookup(key, kph);
+    if(s.ok()){
+      done=true;
+      return Status::OK();
+    }
+  }
+
+
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
@@ -2282,6 +2297,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
     RecordInHistogram(stats_, BYTES_PER_READ, size);
   }
+  //加入缓存
+  ic->Insert(key, get_impl_options.value.toSlice());
   return s;
 }
 
@@ -3095,6 +3112,11 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
   }
   return s;
 }
+
+// Status DBImpl::CreateICache(){
+//   iCache* ic=new iCache();
+//   return Status::OK();
+// }
 
 Status DBImpl::CreateColumnFamilies(
     const ColumnFamilyOptions& cf_options,

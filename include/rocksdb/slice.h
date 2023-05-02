@@ -210,6 +210,8 @@ class PinnableSlice : public Slice, public Cleanable {
     size_ = 0;
   }
 
+  Slice toSlice();
+
   inline std::string* GetSelf() { return buf_; }
 
   inline bool IsPinned() const { return pinned_; }

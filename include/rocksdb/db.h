@@ -29,6 +29,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wide_columns.h"
+#include "cache/icache.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -360,6 +361,9 @@ class DB {
       const ColumnFamilyOptions& options,
       const std::vector<std::string>& column_family_names,
       std::vector<ColumnFamilyHandle*>* handles);
+
+  // 创建iCache
+  // virtual Status CreateICache();
 
   // Bulk create column families.
   // Return the handles of the column families through the argument handles.
