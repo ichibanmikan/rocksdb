@@ -809,6 +809,205 @@ Status CompactionJob::Run() {
   return status;
 }
 
+Status CompactionJob::Run(iCache* ic){
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_RUN);
+  TEST_SYNC_POINT("CompactionJob::Run():Start");
+  log_buffer_->FlushBufferToLog();
+  LogCompaction();
+
+  const size_t num_threads = compact_->sub_compact_states.size();
+  assert(num_threads > 0);
+  const uint64_t start_micros = db_options_.clock->NowMicros();
+
+  // Launch a thread for each of subcompactions 1...num_threads-1
+  std::vector<port::Thread> thread_pool;
+  thread_pool.reserve(num_threads - 1);
+  for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
+    thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
+                             &compact_->sub_compact_states[i]);
+  }
+
+  // Always schedule the first subcompaction (whether or not there are also
+  // others) in the current thread to be efficient with resources
+  ProcessKeyValueCompaction(&compact_->sub_compact_states[0]);
+
+  // Wait for all other threads (if there are any) to finish execution
+  for (auto& thread : thread_pool) {
+    thread.join();
+  }
+
+  compaction_stats_.SetMicros(db_options_.clock->NowMicros() - start_micros);
+
+  for (auto& state : compact_->sub_compact_states) {
+    compaction_stats_.AddCpuMicros(state.compaction_job_stats.cpu_micros);
+    state.RemoveLastEmptyOutput();
+  }
+
+  RecordTimeToHistogram(stats_, COMPACTION_TIME,
+                        compaction_stats_.stats.micros);
+  RecordTimeToHistogram(stats_, COMPACTION_CPU_TIME,
+                        compaction_stats_.stats.cpu_micros);
+
+  TEST_SYNC_POINT("CompactionJob::Run:BeforeVerify");
+
+  // Check if any thread encountered an error during execution
+  Status status;
+  IOStatus io_s;
+  bool wrote_new_blob_files = false;
+
+  for (const auto& state : compact_->sub_compact_states) {
+    if (!state.status.ok()) {
+      status = state.status;
+      io_s = state.io_status;
+      break;
+    }
+
+    if (state.Current().HasBlobFileAdditions()) {
+      wrote_new_blob_files = true;
+    }
+  }
+
+  if (io_status_.ok()) {
+    io_status_ = io_s;
+  }
+  if (status.ok()) {
+    constexpr IODebugContext* dbg = nullptr;
+
+    if (output_directory_) {
+      io_s = output_directory_->FsyncWithDirOptions(
+          IOOptions(), dbg,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
+    }
+
+    if (io_s.ok() && wrote_new_blob_files && blob_output_directory_ &&
+        blob_output_directory_ != output_directory_) {
+      io_s = blob_output_directory_->FsyncWithDirOptions(
+          IOOptions(), dbg,
+          DirFsyncOptions(DirFsyncOptions::FsyncReason::kNewFileSynced));
+    }
+  }
+  if (io_status_.ok()) {
+    io_status_ = io_s;
+  }
+  if (status.ok()) {
+    status = io_s;
+  }
+  if (status.ok()) {
+    thread_pool.clear();
+    std::vector<const CompactionOutputs::Output*> files_output;
+    for (const auto& state : compact_->sub_compact_states) {
+      for (const auto& output : state.GetOutputs()) {
+        files_output.emplace_back(&output);
+      }
+    }
+    ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+    auto& prefix_extractor =
+        compact_->compaction->mutable_cf_options()->prefix_extractor;
+    std::atomic<size_t> next_file_idx(0);
+    auto verify_table = [&](Status& output_status) {
+      while (true) {
+        size_t file_idx = next_file_idx.fetch_add(1);
+        if (file_idx >= files_output.size()) {
+          break;
+        }
+        // Verify that the table is usable
+        // We set for_compaction to false and don't
+        // OptimizeForCompactionTableRead here because this is a special case
+        // after we finish the table building No matter whether
+        // use_direct_io_for_flush_and_compaction is true, we will regard this
+        // verification as user reads since the goal is to cache it here for
+        // further user reads
+        const ReadOptions verify_table_read_options(
+            Env::IOActivity::kCompaction);
+        InternalIterator* iter = cfd->table_cache()->NewIterator(
+            verify_table_read_options, file_options_,
+            cfd->internal_comparator(), files_output[file_idx]->meta,
+            /*range_del_agg=*/nullptr, prefix_extractor,
+            /*table_reader_ptr=*/nullptr,
+            cfd->internal_stats()->GetFileReadHist(
+                compact_->compaction->output_level()),
+            TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
+            /*skip_filters=*/false, compact_->compaction->output_level(),
+            MaxFileSizeForL0MetaPin(
+                *compact_->compaction->mutable_cf_options()),
+            /*smallest_compaction_key=*/nullptr,
+            /*largest_compaction_key=*/nullptr,
+            /*allow_unprepared_value=*/false);
+        auto s = iter->status();
+
+        if (s.ok() && paranoid_file_checks_) {
+          OutputValidator validator(cfd->internal_comparator(),
+                                    /*_enable_order_check=*/true,
+                                    /*_enable_hash=*/true);
+          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+            s = validator.Add(iter->key(), iter->value());
+            ic->Insert(iter->key(), iter->value());
+            if (!s.ok()) {
+              break;
+            }
+          }
+          if (s.ok()) {
+            s = iter->status();
+          }
+          if (s.ok() &&
+              !validator.CompareValidator(files_output[file_idx]->validator)) {
+            s = Status::Corruption("Paranoid checksums do not match");
+          }
+        }
+
+        delete iter;
+
+        if (!s.ok()) {
+          output_status = s;
+          break;
+        }
+      }
+    };
+    for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
+      thread_pool.emplace_back(
+          verify_table, std::ref(compact_->sub_compact_states[i].status));
+    }
+    verify_table(compact_->sub_compact_states[0].status);
+    for (auto& thread : thread_pool) {
+      thread.join();
+    }
+
+    for (const auto& state : compact_->sub_compact_states) {
+      if (!state.status.ok()) {
+        status = state.status;
+        break;
+      }
+    }
+  }
+
+  ReleaseSubcompactionResources();
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:0");
+  TEST_SYNC_POINT("CompactionJob::ReleaseSubcompactionResources:1");
+
+  TablePropertiesCollection tp;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.GetOutputs()) {
+      auto fn =
+          TableFileName(state.compaction->immutable_options()->cf_paths,
+                        output.meta.fd.GetNumber(), output.meta.fd.GetPathId());
+      tp[fn] = output.table_properties;
+    }
+  }
+  compact_->compaction->SetOutputTableProperties(std::move(tp));
+
+  // Finish up all book-keeping to unify the subcompaction results
+  compact_->AggregateCompactionStats(compaction_stats_, *compaction_job_stats_);
+  UpdateCompactionStats();
+
+  RecordCompactionIOStats();
+  LogFlush(db_options_.info_log);
+  TEST_SYNC_POINT("CompactionJob::Run():End");
+
+  compact_->status = status;
+  return status;  
+}
+
 Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   assert(compact_);
 

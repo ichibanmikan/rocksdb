@@ -45,6 +45,7 @@
 #include "util/autovector.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "cache/icache.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -183,6 +184,8 @@ class CompactionJob {
   // that, verify table is usable and finally do bookkeeping to unify
   // subcompaction results
   Status Run();
+
+  Status Run(iCache* ic);
 
   // REQUIRED: mutex held
   // Add compaction input/output to the current version

@@ -11,8 +11,9 @@
 #include "table/format.h"
 #include "rocksdb/status.h"
 #include "db/column_family.h"
-#include "debug/version_set.h"
+#include "db/version_set.h"
 #include "rocksdb/options.h"
+#include "rocksdb/db.h"
 
 #include <unordered_map>
 #include <vector>
@@ -265,12 +266,7 @@ class icache{
         ~icache();
 
         Status Insert(Slice& key, Slice& value);
-        Status Lookup(Slice& key, KPVHandle* &ret_ptr,
-                      const ReadOptions&, const LookupKey& key, PinnableSlice* value,
-                      PinnableWideColumns* columns, std::string* timestamp, Status* status,
-                      MergeContext* merge_context,
-                      SequenceNumber* max_covering_tombstone_seq,
-                      PinnedIteratorsManager* pinned_iters_mgr);
+        Status Lookup(Slice& key, KPVHandle* &ret_ptr);
         Status Erase(Slice& key);
         Status Flush(Slice& key);
 
