@@ -42,9 +42,8 @@ class key_pointer_node_lruhandle_table;
 class KPVHandle{
     friend class key_value_node_lruhandle_table;
     friend class key_pointer_node_lruhandle_table;
-    private:
-        Slice value_;
     public:
+        Slice value_;
         KPVHandle* next_;
         KPVHandle* prev_;
 
@@ -63,7 +62,7 @@ class KPVHandle{
 
         ~KPVHandle(){}
 
-        void printHelp();
+        // void printHelp();
 
         // void set_bf(KPVHandle* p, KPVHandle* n);
 };
@@ -108,7 +107,7 @@ class key_value_node_lruhandle_table {
 
         void Clean();
 
-        void printHelp();
+        // void printHelp();
 };
 
 class key_pointer_node_lruhandle_table {
@@ -157,7 +156,7 @@ class key_pointer_node_lruhandle_table {
 
         void Clean();
 
-        void printHelp();
+        // void printHelp();
     private:
         std::unordered_map<std::string, KPVHandle*>::iterator Find(KPVHandle* k);
 };

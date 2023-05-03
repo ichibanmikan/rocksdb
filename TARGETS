@@ -366,7 +366,6 @@ cpp_library_wrapper(name="rocksdb_whole_archive_lib", srcs=[
         "cache/clock_cache.cc",
         "cache/compressed_secondary_cache.cc",
         "cache/lru_cache.cc",
-        "cache/icache.cc",
         "cache/secondary_cache.cc",
         "cache/secondary_cache_adapter.cc",
         "cache/sharded_cache.cc",

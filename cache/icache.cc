@@ -49,12 +49,12 @@ inline void KPVHandle::setNewValue(Slice v){
     size_+=value_.size();
 }
 
-void KPVHandle::printHelp(){
-    std::cout << value_->data_ << ' ';
-    if(next_){
-        std::cout << "-> ";
-    }
-}
+// void KPVHandle::printHelp(){
+//     std::cout << value_->data_ << ' ';
+//     if(next_){
+//         std::cout << "-> ";
+//     }
+// }
 
 /****************Key-Value Cache*****************/
 
@@ -387,19 +387,19 @@ Status key_value_node_lruhandle_table::Adjust(KPVHandle* k){
     return Status::OK();
 }
 
-void key_value_node_lruhandle_table::printHelp(){
-    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
-        if(iter->second){
-            std::cout << iter->first << ' ';
-        }
-    }
-    std::cout << std::endl;
-    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
-        if(iter->second){
-            iter->second->printHelp();
-        }
-    }
-}
+// void key_value_node_lruhandle_table::printHelp(){
+//     for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+//         if(iter->second){
+//             std::cout << iter->first << ' ';
+//         }
+//     }
+//     std::cout << std::endl;
+//     for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+//         if(iter->second){
+//             iter->second->printHelp();
+//         }
+//     }
+// }
 
 /************************Key Pointer Cache*************************/
 /* @kpcache: */
@@ -487,7 +487,12 @@ Status key_pointer_node_lruhandle_table::Insert(Slice& key, Slice& value){
         if(iter->second==nullptr){
             hash_table.erase(iter);
         }
-        KPVHandle* tmp_kh=new KPVHandle(value);
+        KPVHandle* tmp_kh;
+        if(value.size_<24){
+            tmp_kh=new KPVHandle(value); //value小于24B, 不存储地址
+        } else {
+            tmp_kh=new KPVHandle(value, true);
+        }
         if(((now_size-now_ghost_length)+key.size()+tmp_kh->size_)>(max_length_-ghost_size)){
             Evict((uint32_t)key.size()+tmp_kh->size_);
         }
@@ -671,19 +676,19 @@ void key_pointer_node_lruhandle_table::Clean(){
     }
 }
 
-void key_printer_node_lruhandle_table::printHelp(){
-    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
-        if(iter->second){
-            std::cout << iter->first << ' ';
-        }
-    }
-    std::cout << std::endl;
-    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
-        if(iter->second){
-            iter->second->printHelp();
-        }
-    }
-}
+// void key_printer_node_lruhandle_table::printHelp(){
+//     for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+//         if(iter->second){
+//             std::cout << iter->first << ' ';
+//         }
+//     }
+//     std::cout << std::endl;
+//     for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+//         if(iter->second){
+//             iter->second->printHelp();
+//         }
+//     }
+// }
 
 /********************iCache**********************/
 
@@ -793,19 +798,25 @@ Status icache::Lookup(Slice& key, KPVHandle* &ret_ptr){
         sv->cfd->mem()->Get(lkey, value_str, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr, ro, true, nullptr, nullptr, true);
         kvt->DeleteSize((uint32_t)value_str->size());
         const std::string str=*value_str;
-        kpt->Insert(key, Slice(str));
+        s=kpt->Insert(key, Slice(str));
+        return s;
     }
 
     if(s.ok()){
-        ReadOptions ro();
-        const Slice ck=key;
-        LookupKey* lkey=new LookupKey (ck, 0);
-        PinnableSlice* ps;
-        PinnableWideColumns* pwc;
-        Status* s_ptr;
-        sv->current->Get(ro, lkey, ps, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr);
-        kpt->Remove(key);
-        kvt->Insert(key, ps->toSlice());
+        if(ret_ptr->p_flag){
+            ReadOptions ro();
+            const Slice ck=key;
+            LookupKey* lkey=new LookupKey (ck, 0);
+            PinnableSlice* ps;
+            PinnableWideColumns* pwc;
+            Status* s_ptr;
+            sv->current->Get(ro, lkey, ps, pwc, nullptr, s_ptr, nullptr, nullptr, nullptr);
+            kpt->Remove(key);
+            kvt->Insert(key, ps->toSlice());
+        } else {
+            kvt->Insert(key, ret_ptr->value_);
+            kpt->Remove(key);
+        }
     }
     return Status::Aborted();
 } //MergeContext 是查找内容的上下文，类似于局部性的原理，它只和memtable中的内容相关
