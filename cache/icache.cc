@@ -651,24 +651,28 @@ void key_pointer_node_lruhandle_table::Clean(){
 }
 
 icache::icache(){
+    std::cout << "this is iCache!" << std::endl;
     kvt=new key_value_node_lruhandle_table();
     kpt=new key_pointer_node_lruhandle_table();
     sv=new SuperVersion();
 }
 
 icache::icache(SuperVersion s){
+    std::cout << "this is iCache!" << std::endl;
     kvt=new key_value_node_lruhandle_table();
     kpt=new key_pointer_node_lruhandle_table();
     sv=&s;
 }
 
 icache::icache(Slice& key, Slice& value){
+    std::cout << "this is iCache!" << std::endl;
     kvt=new key_value_node_lruhandle_table();
     kpt=new key_pointer_node_lruhandle_table(key, value);
     sv=new SuperVersion();
 }
 
 icache::icache(uint32_t m_len_kv, uint32_t m_len_kp){
+    std::cout << "this is iCache!" << std::endl;
     kvt=new key_value_node_lruhandle_table(m_len_kv);
     kpt=new key_value_node_lruhandle_table(m_len_kp);
     sv=new SuperVersion();

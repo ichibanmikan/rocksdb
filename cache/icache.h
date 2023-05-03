@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 
 namespace ROCKSDB_NAMESPACE {
 
