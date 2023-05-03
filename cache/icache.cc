@@ -49,6 +49,13 @@ inline void KPVHandle::setNewValue(Slice v){
     size_+=value_.size();
 }
 
+void KPVHandle::printHelp(){
+    std::cout << value_->data_ << ' ';
+    if(next_){
+        std::cout << "-> ";
+    }
+}
+
 /****************Key-Value Cache*****************/
 
 key_value_node_lruhandle_table::key_value_node_lruhandle_table(){
@@ -380,6 +387,20 @@ Status key_value_node_lruhandle_table::Adjust(KPVHandle* k){
     return Status::OK();
 }
 
+void key_value_node_lruhandle_table::printHelp(){
+    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+        if(iter->second){
+            std::cout << iter->first << ' ';
+        }
+    }
+    std::cout << std::endl;
+    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+        if(iter->second){
+            iter->second->printHelp();
+        }
+    }
+}
+
 /************************Key Pointer Cache*************************/
 /* @kpcache: */
 
@@ -649,6 +670,22 @@ void key_pointer_node_lruhandle_table::Clean(){
         hash_table.erase(i);
     }
 }
+
+void key_printer_node_lruhandle_table::printHelp(){
+    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+        if(iter->second){
+            std::cout << iter->first << ' ';
+        }
+    }
+    std::cout << std::endl;
+    for(auto iter=hash_table.begin(); iter!=hash_table.end(); iter++){
+        if(iter->second){
+            iter->second->printHelp();
+        }
+    }
+}
+
+/********************iCache**********************/
 
 icache::icache(){
     std::cout << "this is iCache!" << std::endl;

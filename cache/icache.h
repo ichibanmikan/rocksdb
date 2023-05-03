@@ -63,6 +63,8 @@ class KPVHandle{
 
         ~KPVHandle(){}
 
+        void printHelp();
+
         // void set_bf(KPVHandle* p, KPVHandle* n);
 };
     
@@ -105,6 +107,8 @@ class key_value_node_lruhandle_table {
         bool Empty();
 
         void Clean();
+
+        void printHelp();
 };
 
 class key_pointer_node_lruhandle_table {
@@ -153,7 +157,7 @@ class key_pointer_node_lruhandle_table {
 
         void Clean();
 
-
+        void printHelp();
     private:
         std::unordered_map<std::string, KPVHandle*>::iterator Find(KPVHandle* k);
 };
