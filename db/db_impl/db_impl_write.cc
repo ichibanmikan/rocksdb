@@ -25,6 +25,7 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   if (!s.ok()) {
     return s;
   }
+  ic->Insert(key, val);
   return DB::Put(o, column_family, key, val);
 }
 
@@ -34,6 +35,7 @@ Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
   if (!s.ok()) {
     return s;
   }
+  ic->Insert(key, val);
   return DB::Put(o, column_family, key, ts, val);
 }
 
