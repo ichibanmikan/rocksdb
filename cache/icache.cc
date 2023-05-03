@@ -278,6 +278,10 @@ Status key_value_node_lruhandle_table::DeleteSize(uint32_t len){
     return Status::Aborted();
 }
 
+bool cmp_kpv(KPVHandle* k1, KPVHandle* k2){
+    return k1->size_>k2->size_;
+}
+
 //驱逐算法
 Status key_value_node_lruhandle_table::Evict(uint32_t len){
     if(len>(max_length_ - ghost_size)){
@@ -309,9 +313,9 @@ Status key_value_node_lruhandle_table::Evict(uint32_t len){
     }
     /*从real cache中选出等待替换的k-v对，每当尺寸不够就选出a个*/
 
-    // for(int i=evict_kh_real.size()-1; i>=0; i--){
-    for(int i=evict_kh_real.size(); i>=0; i--){
-        for(int j=evict_kh_real[i].size(); j>=0; j--){
+    for(int i=evict_kh_real.size()-2; i>=0; i--){
+    // for(int i=evict_kh_real.size(); i>=0; i--){
+        for(int j=evict_kh_real[i].size()-1; j>=0; j--){
             len-=evict_kh_real[i][j]->size_;
             if(now_ghost_length+evict_kh_real[i][j]->size_<ghost_size){
                 now_ghost_length+=evict_kh_real[i][j]->size_;
@@ -351,6 +355,53 @@ Status key_value_node_lruhandle_table::Evict(uint32_t len){
             } else {
                 delete evict_kh_real[i][j];
             }
+        }
+    }
+
+    std::sort(evict_kh_real[evict_kh_real.size()-1].begin(), evict_kh_real[evict_kh_real.size()-1].end(), cmp_kpv);
+
+    for(int i=0; i<evict_kh_real[evict_kh_real.size()-1].size(); i++){
+        if(len<=0){
+            return Status::OK();
+        }
+        len-=evict_kh_real[evict_kh_real.size()-1][i]->size_;
+        if(now_ghost_length+evict_kh_real[evict_kh_real.size()-1][i]->size_<ghost_size){
+            now_ghost_length+=evict_kh_real[evict_kh_real.size()-1][i]->size_;
+            //TODO: ghost cache保存metadata
+
+            Adjust(evict_kh_real[evict_kh_real.size()-1][i]);
+
+            if(boundary_==tail_){
+                evict_kh_real[evict_kh_real.size()-1][i]->prev_->next_=evict_kh_real[evict_kh_real.size()-1][i]->next_;
+                evict_kh_real[evict_kh_real.size()-1][i]->next_->prev_=evict_kh_real[evict_kh_real.size()-1][i]->prev_;
+                evict_kh_real[evict_kh_real.size()-1][i]->next_=nullptr;
+                evict_kh_real[evict_kh_real.size()-1][i]->prev_=tail_;
+                tail_=evict_kh_real[evict_kh_real.size()-1][i];
+                continue;
+            }
+
+            if(evict_kh_real[evict_kh_real.size()-1][i]==head_){
+                // boundary_->next_=head_;
+                if(boundary_->next_){
+                    boundary_->next_->prev_=head_;
+                }
+                head_->next_->prev_=nullptr;
+                head_=head_->next_;
+                evict_kh_real[evict_kh_real.size()-1][i]->prev_=boundary_;
+                evict_kh_real[evict_kh_real.size()-1][i]->next_=boundary_->next_;
+                boundary_->next_=evict_kh_real[evict_kh_real.size()-1][i];
+                // head_=evict_kh_real[i][j]->next_;
+                continue;
+            }
+
+            boundary_->next_->prev_=evict_kh_real[evict_kh_real.size()-1][i];
+            evict_kh_real[evict_kh_real.size()-1][i]->prev_->next_=evict_kh_real[evict_kh_real.size()-1][i]->next_;
+            evict_kh_real[evict_kh_real.size()-1][i]->next_->prev_=evict_kh_real[evict_kh_real.size()-1][i]->prev_;
+            evict_kh_real[evict_kh_real.size()-1][i]->next_=boundary_->next_;
+            evict_kh_real[evict_kh_real.size()-1][i]->prev_=boundary_;
+            boundary_->next_=evict_kh_real[evict_kh_real.size()-1][i];
+        } else {
+            delete evict_kh_real[evict_kh_real.size()-1][i];
         }
     }
 
@@ -608,8 +659,8 @@ Status key_pointer_node_lruhandle_table::Evict(uint32_t len){
         tmp_size+=sum_size;
         evict_kh_real.push_back(v_tmp);
     }
-    for(int i=evict_kh_real.size(); i>=0; i--){
-        for(int j=evict_kh_real[i].size(); j>=0; j--){
+    for(int i=evict_kh_real.size()-2; i>=0; i--){
+        for(int j=evict_kh_real[i].size()-1; j>=0; j--){
             len-=evict_kh_real[i][j]->size_;
             if(now_ghost_length+evict_kh_real[i][j]->size_<ghost_size){
                 now_ghost_length+=evict_kh_real[i][j]->size_;
@@ -651,6 +702,54 @@ Status key_pointer_node_lruhandle_table::Evict(uint32_t len){
             }
         }
     }
+
+    std::sort(evict_kh_real[evict_kh_real.size()-1].begin(), evict_kh_real[evict_kh_real.size()-1].end(), cmp_kpv);
+
+    for(int i=0; i<evict_kh_real[evict_kh_real.size()-1].size(); i++){
+        if(len<=0){
+            return Status::OK();
+        }
+        len-=evict_kh_real[evict_kh_real.size()-1][i]->size_;
+        if(now_ghost_length+evict_kh_real[evict_kh_real.size()-1][i]->size_<ghost_size){
+            now_ghost_length+=evict_kh_real[evict_kh_real.size()-1][i]->size_;
+            //TODO: ghost cache保存metadata
+
+            Adjust(evict_kh_real[evict_kh_real.size()-1][i]);
+
+            if(boundary_==tail_){
+                evict_kh_real[evict_kh_real.size()-1][i]->prev_->next_=evict_kh_real[evict_kh_real.size()-1][i]->next_;
+                evict_kh_real[evict_kh_real.size()-1][i]->next_->prev_=evict_kh_real[evict_kh_real.size()-1][i]->prev_;
+                evict_kh_real[evict_kh_real.size()-1][i]->next_=nullptr;
+                evict_kh_real[evict_kh_real.size()-1][i]->prev_=tail_;
+                tail_=evict_kh_real[evict_kh_real.size()-1][i];
+                continue;
+            }
+
+            if(evict_kh_real[evict_kh_real.size()-1][i]==head_){
+                // boundary_->next_=head_;
+                if(boundary_->next_){
+                    boundary_->next_->prev_=head_;
+                }
+                head_->next_->prev_=nullptr;
+                head_=head_->next_;
+                evict_kh_real[evict_kh_real.size()-1][i]->prev_=boundary_;
+                evict_kh_real[evict_kh_real.size()-1][i]->next_=boundary_->next_;
+                boundary_->next_=evict_kh_real[evict_kh_real.size()-1][i];
+                // head_=evict_kh_real[i][j]->next_;
+                continue;
+            }
+
+            boundary_->next_->prev_=evict_kh_real[evict_kh_real.size()-1][i];
+            evict_kh_real[evict_kh_real.size()-1][i]->prev_->next_=evict_kh_real[evict_kh_real.size()-1][i]->next_;
+            evict_kh_real[evict_kh_real.size()-1][i]->next_->prev_=evict_kh_real[evict_kh_real.size()-1][i]->prev_;
+            evict_kh_real[evict_kh_real.size()-1][i]->next_=boundary_->next_;
+            evict_kh_real[evict_kh_real.size()-1][i]->prev_=boundary_;
+            boundary_->next_=evict_kh_real[evict_kh_real.size()-1][i];
+        } else {
+            delete evict_kh_real[evict_kh_real.size()-1][i];
+        }
+    }
+
     return Status::OK();
 }
 
