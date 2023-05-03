@@ -942,7 +942,7 @@ Status CompactionJob::Run(iCache* ic){
                                     /*_enable_hash=*/true);
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             s = validator.Add(iter->key(), iter->value());
-            ic->Insert(iter->key(), iter->value());
+            ic->Flush(iter->key());
             if (!s.ok()) {
               break;
             }
